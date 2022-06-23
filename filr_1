@@ -1,0 +1,263 @@
+June 7th, 2022
+----------------------    
+amazon ec2 Ubuntu 18.04  instance
+type: t2-xlarge
+
+
+
+1  wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+    2  echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list
+    3  apt update
+
+    8  java --version
+    9  	
+   10  apt install elasticsearch
+   11  service elasticsearch start
+   12  service elasticsearch status
+   13  vim /etc/elasticsearch/elasticsearch.yml
+		-: network.host: 0.0.0.0
+		   http.port: 9200
+		   discovery.seed_hosts: ["<public or private IP's of same server>"]
+   13.1  vim /etc/elasticsearch/jvm.options
+		:- Xms512m
+		   Xmx512m	(the maximum (-Xmx) and minimum (-Xms) size is set to 512MB.) 
+	(By default, the JVM heap size is 1GB, which is usually enough to accommodate the data used by Task Engine. However, 
+           larger heap size may be required under some circumstances, for example, when the average size of the parameters in a task is very large)
+   
+   14  curl localhost:9200
+
+   15  echo "deb http://packages.elasticsearch.org/logstash/1.5/debian stable main" | sudo tee -a /etc/apt/sources.list
+   16  apt-get update
+   17  apt-get install logstash
+   18  apt-get update
+   19  service logstash start
+   20  service logstash status
+   21  vim /etc/logstash/conf.d/logstash-syslog.conf
+----------------------------------------------------------------------------------------------------
+		input {
+    file {
+    type => "syslog"
+    path => [ "/var/log/messages", "/var/log/*.log" ]
+    }
+    }
+    output {
+    stdout {
+    codec => rubydebug
+    }
+    elasticsearch {
+    host => "localhost" # If you are running elasticsearch in different instance, use #the prive ip instead of localhost.
+    }
+    }
+--------------------------------------------------------------------------------------------------------
+
+   22  service logstash restart
+   23  service logstash status
+   24  wget https://download.elastic.co/kibana/kibana/kibana-4.1.1-linux-x64.tar.gz
+  
+   26  tar -xzf kibana-4.1.1-linux-x64.tar.gz 
+   27  ls
+   28  mkdir /opt/kibana
+   29  mv kibana-4.1.1-linux-x64/* /opt/kibana
+   31  cd /etc/init.d/
+   33  wget https://raw.githubusercontent.com/akabdog/scripts/master/kibana4_init -O kibana4
+   35  chmod +x kibana4 
+   37  update-rc.d kibana4 defaults 96 9
+   38  service kibana4 start
+   39  service kibana4 status 
+----------------------------------------------------------------------------
+    1  apt install kibana
+    2  service kibana start
+    4  systemctl start kibana
+    5  systemctl enable kibana
+    6  cd /etc/kibana/
+    8  vim kibana.yml
+   		( server.host: 0.0.0.0 )
+
+   10  systemctl restart kibana
+   11  systemctl enable kibana
+-------------------------------------------------------------------------------
+   12  curl -L -O https://artifacts.elastic.co/downloads/beats/filebeat
+   13  apt install filebeat
+   14  apt install nginx
+		(to use system as a proxy for kibana
+			apt install apache2-utils
+			htpasswd -c /etc/nginx/htpasswd.users <name for kibana access>
+			check in file:  /etc/nginx/htpasswd.users
+			configure it by placeing data in file: /etc/nginx/sites-available/default
+				server {
+
+listen 80;
+
+server_name <Instance Private IPS>;
+
+auth_basic "Restricted Access"; 
+auth_basic_user_file /etc/nginx/htpasswd.users;
+
+location / {
+
+proxy_pass http://localhost:5601;
+proxy_http_version 1.1; 
+proxy_set_header Upgrade $http_upgrade; 
+proxy_set_header Connection 'upgrade'; 
+proxy_cache_bypass $http_upgrade;
+proxy_set_header Host $host;
+
+}
+}                )
+
+
+   15  systemctl status nginx
+   17  vim /etc/filebeat/filebeat.yml
+	
+                      # ---------------------------- Elasticsearch Output ----------------------------(if uncomment : to get access of log from filebeat -->elasticsearch --> Kibana)
+                       output.elasticsearch:
+                       # Array of hosts to connect to.
+                       # hosts: ["localhost:9200"]
+
+                     # ------------------------------ Logstash Output -------------------------------(if uncomment: to get access of log from filebeat -->logstash -->elasticsearch --> Kibana)
+                       #output.logstash:
+                       # The Logstash hosts
+                       hosts: ["localhost:5044"]
+
+
+   19  filebeat modules enable nginx  (to get log of nginx)
+   19.5 filebeat setup -e (see logs in discover kibana )
+   20  cd /etc/filebeat/
+   21  ls
+   22  vim modules.d/
+   23  cd /etc/log
+   24  cd /etc/logstash/
+  
+   26  cat logstash-sample.conf (example file)
+   27  cd conf.d
+
+   29  vi nginx.conf ----(for pipline to filter out of nginx (place ip of server))
+   		(
+			input {
+  beats {
+    port => 5044
+  }
+ }
+
+
+filter {
+   grok {
+      match => { "message" => "%{IPORHOST:remote_ip} - %{DATA:user_name} \[%{HTTPDATE:access_time}\] \"%{WORD:http_method} %{DATA:url} HTTP/%{NUMBER:http_version}\" %{NUMBER:response_code} %{NUMBER:body_sent_bytes} \"%{DATA:referrer}\" \"%{DATA:agent}\"" }
+           }
+geoip {
+    source => "ip"
+  }
+}
+
+output {
+  stdout { codec => rubydebug }
+  elasticsearch {
+    hosts => ["http://13.126.192.125:9200"]
+    index => "nginx_filebeat-%{+YYYY.MM.dd}"
+  }
+}
+
+
+)
+
+
+
+
+   40  curl -X GET "localhost:9200"
+   41  curl 'localhost:9200/_cat/indices?v'
+   
+   45  systemctl restart elasticsearch
+   46  systemctl restart logstash
+   47  systemctl restart filebeat
+   48  systemctl restart kibana
+   49  curl 'localhost:9200/_cat/indices?v'
+   50  systemctl restart elasticsearch
+   51  curl 'localhost:9200/_cat/indices?v'
+
+
+log file:
+vim /var/log/kibana/kibana.stderr
+
+
+
+-------------------------
+Ubuntu 20.04
+ apt install openjdk-11-jre-headless
+---------------------------------------------------------------
+---------------------------------------------------------------
+June 8th, 2022
+--------------
+apt installapache2-utils
+
+- filebeat modules list
+- filebeat modules enable system
+--------------------------------------------
+
+
+--------------------------------------------------------
+---------------------------------------------------------
+DSL Querry
+-------------------------------------------------------
+PUT /megacorp/employee/1?pretty
+{
+ "first_name" : "John",
+ "last_name" : "Smith",
+ "age" : 25,
+ "about" : "I love to go rock climbing",
+ "interests": [ "sports", "music" ]
+}
+
+#Indexing without an ID
+POST /megacorp/employee?pretty
+{
+ "first_name" : "Jane",
+ "last_name" : "Smith",
+ "age" : 32,
+ "about" : "I like to collect rock albums",
+ "interests": [ "music" ]
+}
+
+PUT /megacorp/employee/2?pretty
+{
+ "first_name" : "Nayan",
+ "last_name" : "Turankar",
+ "age" : 24,
+ "about" : "I am working with IGP",
+ "interests": [ "sports", "music","cooking" ]
+}
+# Retrieving documents
+GET /megacorp/employee/2?
+
+#Fetch 10 documents from the megacorp index with the type employee
+GET /megacorp/employee/_search?pretty
+
+#Simple search using the match query, which looks for exact matches in the field provided:
+GET /megacorp/employee/_search
+{
+ "query" : {
+ "match" : {
+ "age": "24"
+ }
+ }
+}
+
+# Basic Search Parameters with specific content
+# the full indexed document is returned as part of all searches
+POST /megacorp/_search?pretty
+{
+ "query": { "match_all": {} },
+ "_source": ["age", "about","first_name"]
+}
+
+
+POST /megacorp/_search?pretty'
+{
+ "query": { "match": { "age": 20 }  }
+}'
+
+
+
+
+---------------------------------------------------------
+---------------------------------------------------------
+m.9699990757 :-(rohan)(20 jully)
